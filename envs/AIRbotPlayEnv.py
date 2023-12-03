@@ -102,7 +102,7 @@ class AIRbotPlayEnv(gym.Env):
         # rospy.sleep(self.sleep_time)
         observation = self._get_obs() # deviations x, y ,yaw
         print('observation',observation)
-        reward = -np.linalg.norm(observation)-(1-self.cube_counter)*500.0
+        reward = -np.linalg.norm(observation)#-(1-self.cube_counter)*500.0
         print("reward", reward)        
         
         terminated = False

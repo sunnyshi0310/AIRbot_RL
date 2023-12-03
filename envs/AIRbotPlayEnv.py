@@ -125,11 +125,8 @@ class AIRbotPlayEnv(gym.Env):
             
             if self.cube_counter == 0:
                 rospy.set_param("/vision_attention",'place0') # set the vision mode
-                # put down and lift up again (how to avoid repeated work?)
-                self.arm.go_to_single_axis_target(2,self._pick_base_z,sleep_time=1)
             else:
                 rospy.set_param("/vision_attention",'place1') # set the vision mode
-                self.arm.go_to_single_axis_target(2,self._pick_base_z+0.025,sleep_time=1)
             
             gripper_control(0,self.sleep_time)
             # lift up the arm

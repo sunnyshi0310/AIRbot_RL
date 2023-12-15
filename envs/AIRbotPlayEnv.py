@@ -245,13 +245,7 @@ class AIRbotPlayEnv(gym.Env):
             self.arm.go_to_single_axis_target(2, self._pick_base_z + 0.05, sleep_time=1)
 
             # move back to pick up area
-            self.arm.set_and_go_to_pose_target(
-                self.pick_pose[0:3],
-                self.pick_pose[3:6],
-                "0",
-                self.sleep_time,
-                return_enable=True,
-            )
+            self.go_to_pick_pose()
 
             # Define the termination condition
             if self.cube_counter == 0:

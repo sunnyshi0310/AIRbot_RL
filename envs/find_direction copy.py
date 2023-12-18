@@ -83,12 +83,22 @@ class ActionConfig(object):
 
 class FindDirection(gym.Env):
     def __init__(self, observation_config=1, action_config=1):
-        obervation_config = ObservationConfig(observation_config)
-        self.obs_range = obervation_config.obs_range
-        self.observation_space = obervation_config.observation_space
-        action_config = ActionConfig(action_config)
-        self.action_space = action_config.action_space
-        self._action_to_direction = action_config.action_to_direction
+        self.action_space = spaces.Discrete(6)
+        self._action_to_direction = {
+            0: np.array([1, 0, 0]),
+            1: np.array([-1, 0, 0]),
+            2: np.array([0, 1, 0]),
+            3: np.array([0, -1, 0]),
+            4: np.array([0, 0, 1]),
+            5: np.array([0, 0, -1]),
+        }
+
+        self.obs_range = np.array([[-5, -5, -3], [5, 5, 3]])
+        self.observation_space = spaces.Box(
+            low=self.obs_range[0],
+            high=self.obs_range[1],
+            dtype=np.int0,
+        )
 
         self._recorder = {
             "time": [],
@@ -122,18 +132,9 @@ class FindDirection(gym.Env):
         self._total_record = total_record
 
     def step(self, action):
-        if self._action_to_direction is None:
-            direction = action
-        else:
-            direction = self._action_to_direction[int(action)]
+
+        direction = self._action_to_direction[int(action)]
         self.current_pose += direction
-        # print("current_pose", self.current_pose)
-        # time.sleep(0.5)
-        # 检测是否反方向移动
-        away = 0
-        for i in range(3):
-            if self.last_observation[i] * direction[i] < 0:
-                away += 1
 
         # 区域限制
         obs_range = self.get_observation_range()
@@ -142,41 +143,11 @@ class FindDirection(gym.Env):
         observation = self._get_obs()
 
         # Calculate reward
-        terminated = False
-        max_steps = 15
-        self.reward_method = 1
-        if self.reward_method == 1:
-            reward = -np.linalg.norm(observation)
-        elif self.reward_method == 2:
-            reward = 1 - 10 * away
-        elif self.reward_method == 3:
-            reward = np.linalg.norm(self.last_observation) - np.linalg.norm(observation)
-        elif self.reward_method == 4:
-            if (direction == 0).all():
-                if (observation == 0).all():
-                    zero_reward = 100
-                else:
-                    zero_reward = -25
-            else:
-                zero_reward = 0
-            time_panelty = 4 * (self._recorder["num"] / max_steps)
-            toward_reward = (
-                -away * 50 - time_panelty
-                if away > 0
-                else 0
-                if zero_reward != 0
-                else 10 - time_panelty
-            )
-            reward = toward_reward + zero_reward
-        elif self.reward_method == 5:
-            if away > 0:
-                reward = -1000
-            else:
-                reward = 100
-            terminated = True
+        max_steps = 175
+        reward = -np.linalg.norm(observation) * 10
+
         # print("reward", reward)
         self.last_observation = observation.copy()
-
         # record the steps
         self._recorder["num"] += 1
         self._steps_per_episode += 1
@@ -184,33 +155,24 @@ class FindDirection(gym.Env):
 
         truncated = False
         info = {}
-        if not terminated:
-            if np.linalg.norm(observation) < 2:
-                reward += 1000
-                terminated = True
-            elif self._steps_per_episode == max_steps:  # threshold
-                reward -= 100 * np.linalg.norm(observation)
-                terminated = True
+
+        terminated = False
+
+        if np.linalg.norm(observation) < 2:
+            reward += 1000
+            terminated = True
+        elif self._steps_per_episode == max_steps:  # threshold
+            terminated = True
 
         return observation, reward, terminated, truncated, info
 
     def _get_obs(self):
         return self.target_pose - self.current_pose
 
-    def _get_random_point(self):
-        return np.random.randint(0, 100000, size=(3,)) / 100
-
-    def _get_random_space(self):
-        type_random = [np.double, np.int0][np.random.randint(0, 2)]
-        obs_range_random = [None, None]
-        obs_range_random[0] = -self._get_random_point()  # 下限为负数，保证存在可行域
-        obs_range_random[1] = self._get_random_point()
-        return obs_range_random, type_random
-
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
 
-        # print("Reset")
+        print("Reset")
         self._steps_per_episode = 0
         self.go_to_init_pose()  # 这个位置是不是每次可以随机设置？
         # self.set_target_pose(np.random.randint(-1000, 1000, size=(3,)) / 100)
@@ -251,7 +213,7 @@ if __name__ == "__main__":
         # mean_reward, std_reward = evaluate_policy(model, env, n_eval_episodes=10)
         # print(f"Before training: mean_reward:{mean_reward:.2f} +/- {std_reward:.2f}")
 
-        model.learn(total_timesteps=20000)
+        model.learn(total_timesteps=100000)
         model.save(f"{models_dir}/PPO_find_dirction{train_id}")
         # 评估训练后的 policy
         # env.reset()
@@ -293,7 +255,7 @@ if __name__ == "__main__":
         print("Original target error:", np.linalg.norm(env.target_pose))
         env.close()
 
-    train_id = 2
+    train_id = 3
     total_episodes = 1
     train(train_id)
     # evaluate(train_id)

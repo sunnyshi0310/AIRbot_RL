@@ -120,6 +120,17 @@ class AIRbotPlayEnv(gym.Env):
             10: np.array([0, 0, 0.3]),
             11: np.array([0, 0, -0.3]),
         }
+
+        # # 所有可能方向的排列组合
+        # values = [0, 1, -1]
+        # self._action_to_direction = {}
+        # cnt=0
+        # for i in values:
+        #     for j in values:
+        #         for k in values:
+        #             self._action_to_direction[cnt] = [i, j, k]
+        #             cnt+=1
+
         self.step_size = np.array(
             [0.005, 0.005, 0.005]
         )  # action step size on x- y- yaw direction.
@@ -171,7 +182,7 @@ class AIRbotPlayEnv(gym.Env):
 
     def set_id(self, id):
         self._id = id
-    
+
     def set_total_record(self, total_record):
         self._total_record = total_record
 
@@ -182,37 +193,58 @@ class AIRbotPlayEnv(gym.Env):
         rospy.set_param("/vision_attention", attention)
 
     def step(self, action):
+        print("observation", self.last_observation)
         print("action", action)
         # Take action
+
         direction = self._action_to_direction[action]
         inc = direction * self.step_size
         pos_inc = [inc[0], inc[1], 0]
         rot_inc = [0, 0, inc[2]]
+
+        # # 反向移动限制，防止跑出可见区域
+        # away = 0
+        # for i in range(2):
+        #     if self.last_observation[i] * direction[i] >= 0:  # 同向
+        #         inc[i] = self.last_observation[i] / 5555
+        #     else:
+        #         inc[i] = 0.0001 * direction[i]
+        #         away += 1
+        # if self.last_observation[2] * direction[2] >= 0:  # 同向
+        #     inc[i] = self.last_observation[i]
+        # else:
+        #     inc[i] = 0.0001 * direction[i]
+        #     away += 1
+        # pos_inc = [inc[0], inc[1], 0]
+        # rot_inc = [0, 0, inc[2]]
+
         # last表示给定值是基于上次目标值的增量
         self.arm.set_and_go_to_pose_target(
-            pos_inc, rot_inc, "last", self.sleep_time, return_enable=True
+            pos_inc, rot_inc, "last", 0.2, return_enable=True
         )
 
-        # rospy.sleep(self.sleep_time)
         observation = self._get_obs()  # deviations x, y ,yaw
-        print("observation", observation)
-        reward = -np.linalg.norm(
-            observation
-        )  # -(1-self.cube_counter)*500.0  np.linalg.norm(self.last_observation)?
-        print("reward", reward)
+        # print("observation", observation)
         self.last_observation = observation.copy()
 
-        # record the data
-        self._recorder["time"].append(rospy.get_time() - self._time_base)
-        self._recorder["observation"].append(self.last_observation.tolist())
-        self._recorder["action"].append(inc.tolist())
-        self._recorder["reward"].append(reward)
+        # Calculate reward
+        reward = -np.linalg.norm(observation) 
+        print("reward", reward)
+
+        # reward = 1 - 2 * away  # 
+
+        # record the steps
         self._recorder["num"] += 1
         print("num:", self._recorder["num"])
-        if self._recorder["num"] == self._total_record:
-            json_process(f"./data_{self._id}.json", write=self._recorder)
-            raise Exception("stop")
-
+        # record the data
+        if self._total_record > 0:
+            self._recorder["time"].append(rospy.get_time() - self._time_base)
+            self._recorder["observation"].append(self.last_observation.tolist())
+            self._recorder["action"].append(inc.tolist())
+            self._recorder["reward"].append(reward)
+            if self._recorder["num"] == self._total_record:
+                json_process(f"./data_{self._id}.json", write=self._recorder)
+                raise Exception("stop")
         terminated = False
         truncated = False
         info = {}

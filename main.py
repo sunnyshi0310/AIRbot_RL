@@ -1,24 +1,30 @@
 #!/usr/bin/env python3
 
-import gymnasium as gym
-import numpy as np
 from envs.AIRbotPlayEnv import AIRbotPlayEnv
 from stable_baselines3 import PPO
-from threading import Thread
+import os
 
 
 def train(train_id):
+    models_dir = "saved_models"
+    if not os.path.exists(models_dir):
+        os.makedirs(models_dir)
     env = AIRbotPlayEnv("./pick_place_configs_isaac.json")
     env.set_id(train_id)
-    env.set_total_record(200)  # 总共多少step
+    env.set_total_record(0)  # 总共多少step
     # Train with new policy
+    # logdir = ''
+    # if not os.path.exists(logdir):
+    #     os.makedirs(logdir)
+    # model = PPO("MlpPolicy", env, verbose=1, tensorboard_log=logdir)
     model = PPO("MlpPolicy", env, verbose=1)
+    model.load(f"saved_models/PPO_{train_id - 1}")
     model.learn(total_timesteps=2000)
-    model.save(f"saved_models/PPO_{train_id}")
+    model.save(f"{models_dir}/PPO_{train_id}")
 
 
-train_id = 0
-total_episodes = 3
+train_id = 3
+total_episodes = 1
 for _ in range(total_episodes):
     print(f"Training: {train_id}")
     try:

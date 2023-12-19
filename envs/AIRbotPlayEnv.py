@@ -89,51 +89,34 @@ class AIRbotPlayEnv(gym.Env):
 
         # Define the observation space and action space
         # Observations are deviations from the correct pose, including x, y and yaw
+        # self.observation_space = spaces.Box(
+        #     low=np.array([-2000.0, -2000.0, -pi]),
+        #     high=np.array([2000.0, 2000.0, pi]),
+        #     dtype=np.double,
+        # )
+
+        self.obs_range = np.array([[-10, -10, -10], [10, 10, 10]])
         self.observation_space = spaces.Box(
-            low=np.array([-1000.0, -1000.0, -pi]),
-            high=np.array([1000.0, 1000.0, pi]),
+            low=self.obs_range[0],
+            high=self.obs_range[1],
             dtype=np.double,
         )
-        self.last_observation = np.zeros(3)
-
-        # We have 6 actions, corresponding to "right", "left","up",  "down", "clockwise", "counterclock"
-        self.action_space = spaces.Discrete(
-            12
-        )  # improved later with complicated actions.
 
         """
         The following dictionary maps abstract actions from `self.action_space` to
         the direction we will walk in if that action is taken.
         I.e. 0 corresponds to "right", 1 to "up" etc.
         """
-        self._action_to_direction = {
-            0: np.array([1, 0, 0]),
-            1: np.array([-1, 0, 0]),
-            2: np.array([0, 1, 0]),
-            3: np.array([0, -1, 0]),
-            4: np.array([0, 0, 1]),
-            5: np.array([0, 0, -1]),
-            6: np.array([0.3, 0, 0]),
-            7: np.array([-0.3, 0, 0]),
-            8: np.array([0, 0.3, 0]),
-            9: np.array([0, -0.3, 0]),
-            10: np.array([0, 0, 0.3]),
-            11: np.array([0, 0, -0.3]),
-        }
+        self.action_space = spaces.Discrete(27)
+        values = [0, 1, -1]
+        self._action_to_direction = {}
+        cnt = 0
+        for i in values:
+            for j in values:
+                for k in values:
+                    self._action_to_direction[cnt] = np.array([i, j, k])
+                    cnt += 1  # 所有可能方向的排列组合
 
-        # # 所有可能方向的排列组合
-        # values = [0, 1, -1]
-        # self._action_to_direction = {}
-        # cnt=0
-        # for i in values:
-        #     for j in values:
-        #         for k in values:
-        #             self._action_to_direction[cnt] = [i, j, k]
-        #             cnt+=1
-
-        self.step_size = np.array(
-            [0.005, 0.005, 0.005]
-        )  # action step size on x- y- yaw direction.
         self.sleep_time = 2  # make sure the previous action is done
         self.cube_counter = 0
 
@@ -197,41 +180,28 @@ class AIRbotPlayEnv(gym.Env):
         print("action", action)
         # Take action
 
-        direction = self._action_to_direction[action]
-        inc = direction * self.step_size
+        direction = self._action_to_direction[int(action)]
+        inc = direction * np.abs(self.last_observation) / 10000
         pos_inc = [inc[0], inc[1], 0]
         rot_inc = [0, 0, inc[2]]
 
-        # # 反向移动限制，防止跑出可见区域
-        # away = 0
-        # for i in range(2):
-        #     if self.last_observation[i] * direction[i] >= 0:  # 同向
-        #         inc[i] = self.last_observation[i] / 5555
-        #     else:
-        #         inc[i] = 0.0001 * direction[i]
-        #         away += 1
-        # if self.last_observation[2] * direction[2] >= 0:  # 同向
-        #     inc[i] = self.last_observation[i]
-        # else:
-        #     inc[i] = 0.0001 * direction[i]
-        #     away += 1
-        # pos_inc = [inc[0], inc[1], 0]
-        # rot_inc = [0, 0, inc[2]]
-
         # last表示给定值是基于上次目标值的增量
         self.arm.set_and_go_to_pose_target(
-            pos_inc, rot_inc, "last", 0.2, return_enable=True
+            pos_inc, rot_inc, "last", 0.5, return_enable=True
         )
+        print("pos_inc", pos_inc)
+        print("rot_inc", rot_inc)
 
         observation = self._get_obs()  # deviations x, y ,yaw
         # print("observation", observation)
         self.last_observation = observation.copy()
 
         # Calculate reward
-        reward = -np.linalg.norm(observation) 
-        print("reward", reward)
-
-        # reward = 1 - 2 * away  # 
+        if np.linalg.norm(observation) < np.linalg.norm(self.last_observation):
+            reward = 1 * (100 - np.linalg.norm(observation))
+        else:
+            reward = -100
+            print("not perfect")
 
         # record the steps
         self._recorder["num"] += 1
@@ -252,6 +222,7 @@ class AIRbotPlayEnv(gym.Env):
         if (
             abs(observation[0]) < 6 and abs(observation[1]) < 3 and observation[2] < 0.1
         ):  # threshold
+            reward += 1000
             print("Start to pick up")
             # start the pick up-action
             # move down the robot arm
@@ -288,11 +259,17 @@ class AIRbotPlayEnv(gym.Env):
 
             self.cube_counter += 1
 
-        return observation, reward, terminated, truncated, info
+        return self._adjust_obs(observation), reward, terminated, truncated, info
 
     def _get_obs(self):
         # deviations x, y ,yaw
         return tf_to_xyzrpy(self._pixel_error)
+
+    def _adjust_obs(self, obs: np.ndarray):
+        # adjust the observation from [-2000, 2000] to the range of [-10, 10]
+        obs = obs.copy() / 200.0
+        obs[2] *= 200.0
+        return obs
 
     def _feedback_callback(self, msg: TransformStamped):
         self._pixel_error = msg
@@ -321,13 +298,15 @@ class AIRbotPlayEnv(gym.Env):
         observation = self._get_obs()
         self.last_observation = observation.copy()
         info = {}
-        return observation, info
+        return self._adjust_obs(observation), info
 
     def render(self):
         pass
 
 
-# from stable_baselines3.common.env_checker import check_env
+if __name__ == "__main__":
+    pass
+    # from stable_baselines3.common.env_checker import check_env
 
-# env = AIRbotPlayEnv()
-# check_env(env, warn = True)
+    # env = AIRbotPlayEnv()
+    # check_env(env, warn = True)

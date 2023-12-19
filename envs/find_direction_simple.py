@@ -66,12 +66,16 @@ class FindDirection(gym.Env):
             print("current_pose", self.current_pose)
             print("current_observation", observation)
 
+        terminated = False
         if np.linalg.norm(observation) < np.linalg.norm(self.last_observation):
             reward = 1 * (100 - np.linalg.norm(observation))
         else:
             reward = -100
             print("not perfect")
-
+        if np.linalg.norm(observation) < 1:
+            # print("attempt times:", self._steps_per_episode)
+            reward += 1000
+            terminated = True
         if test:
             print("reward", reward)
             print(" ")
@@ -87,13 +91,6 @@ class FindDirection(gym.Env):
 
         truncated = False
         info = {}
-
-        terminated = False
-
-        if np.linalg.norm(observation) < 1:
-            # print("attempt times:", self._steps_per_episode)
-            reward += 1000
-            terminated = True
 
         return observation, reward, terminated, truncated, info
 

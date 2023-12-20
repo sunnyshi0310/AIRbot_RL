@@ -18,5 +18,7 @@
     "REAL_HSV2_L": [66, 78, 81],"REAL_HSV2_H": [88,255,255],
     "EXPECT_PICK_REF": 423,
     "EXPECT_X": "AUTO",
-    "EXPECT_PLACE_REF": 345
+    "EXPECT_PLACE_REF": 345,
+    "KP": 10000,
+    "NOT_PICK": "False"
 }

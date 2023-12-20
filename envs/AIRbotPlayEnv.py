@@ -11,32 +11,26 @@ from gazebo_msgs.msg import ModelStates
 from std_srvs.srv import Empty
 import numpy as np
 from airbot_play_control.control import RoboticArmAgent, ChooseGripper
-from math import pi
 
 
 def tf_to_xyzrpy(tf: TransformStamped):
     """将TransformStamped格式的数据转换为xyz和rpy"""
-    if not tf:
-        # when there are no cubes in the camera, generate random actions to move the camera
-        Obs2D = (np.random.rand(3) - 0.5) * 1000.0
-        Obs2D[2] = 0  # make sure the yaw angle is valid
-    else:
-        xyz = [
-            tf.transform.translation.x,
-            tf.transform.translation.y,
-            tf.transform.translation.z,
-        ]
-        rpy = list(
-            tf_conversions.transformations.euler_from_quaternion(
-                [
-                    tf.transform.rotation.x,
-                    tf.transform.rotation.y,
-                    tf.transform.rotation.z,
-                    tf.transform.rotation.w,
-                ]
-            )
+    xyz = [
+        tf.transform.translation.x,
+        tf.transform.translation.y,
+        tf.transform.translation.z,
+    ]
+    rpy = list(
+        tf_conversions.transformations.euler_from_quaternion(
+            [
+                tf.transform.rotation.x,
+                tf.transform.rotation.y,
+                tf.transform.rotation.z,
+                tf.transform.rotation.w,
+            ]
         )
-        Obs2D = np.array([xyz[0], xyz[1], rpy[2]])
+    )
+    Obs2D = np.array([xyz[0], xyz[1], rpy[2]])
     return Obs2D
 
 
@@ -86,14 +80,6 @@ class AIRbotPlayEnv(gym.Env):
             gripper=(4, self.gripper_control),
             other_config=other_config,
         )
-
-        # Define the observation space and action space
-        # Observations are deviations from the correct pose, including x, y and yaw
-        # self.observation_space = spaces.Box(
-        #     low=np.array([-2000.0, -2000.0, -pi]),
-        #     high=np.array([2000.0, 2000.0, pi]),
-        #     dtype=np.double,
-        # )
 
         self.obs_range = np.array([[-10, -10, -10], [10, 10, 10]])
         self.observation_space = spaces.Box(
@@ -154,6 +140,10 @@ class AIRbotPlayEnv(gym.Env):
             config["PLACE_YAW"],
         ]
 
+        self._kp = config["KP"]
+        str_to_bool = lambda x: True if x == "True" else False
+        self._not_pick = str_to_bool(config["NOT_PICK"])
+
         self._recorder = {
             "time": [],
             "observation": [],
@@ -162,6 +152,7 @@ class AIRbotPlayEnv(gym.Env):
             "num": 0,
         }
         self._time_base = rospy.get_time()
+        self._no_target_check = 0
 
     def set_id(self, id):
         self._id = id
@@ -178,10 +169,11 @@ class AIRbotPlayEnv(gym.Env):
     def step(self, action):
         print("observation", self.last_observation)
         print("action", action)
-        # Take action
 
+        # Take action
         direction = self._action_to_direction[int(action)]
-        inc = direction * np.abs(self.last_observation) / 10000
+        inc = direction * np.abs(self.last_observation) / self._kp
+        inc[2] *= self._kp  # yaw无放缩
         pos_inc = [inc[0], inc[1], 0]
         rot_inc = [0, 0, inc[2]]
 
@@ -189,8 +181,18 @@ class AIRbotPlayEnv(gym.Env):
         self.arm.set_and_go_to_pose_target(
             pos_inc, rot_inc, "last", 0.5, return_enable=True
         )
-        print("pos_inc", pos_inc)
-        print("rot_inc", rot_inc)
+        # print("pos_inc", pos_inc)
+        # print("rot_inc", rot_inc)
+        self.no_target = False
+        if self.last_pixel_error == self._pixel_error:
+            self._no_target_check += 1
+            if self._no_target_check > 4:
+                print("no target")
+                self.no_target = True
+                reward = -2000
+        else:
+            self.last_pixel_error = self._pixel_error
+            self._no_target_check = 0
 
         observation = self._get_obs()  # deviations x, y ,yaw
         # print("observation", observation)
@@ -213,51 +215,55 @@ class AIRbotPlayEnv(gym.Env):
             self._recorder["action"].append(inc.tolist())
             self._recorder["reward"].append(reward)
             if self._recorder["num"] == self._total_record:
-                json_process(f"./data_{self._id}.json", write=self._recorder)
+                json_process(f"./data_real_{self._id}.json", write=self._recorder)
                 raise Exception("stop")
         terminated = False
         truncated = False
         info = {}
 
-        if (
+        if self.no_target or (
             abs(observation[0]) < 6 and abs(observation[1]) < 3 and observation[2] < 0.1
         ):  # threshold
             reward += 1000
-            print("Start to pick up")
-            # start the pick up-action
-            # move down the robot arm
-            self.arm.go_to_single_axis_target(
-                2, self._pick_base_z, sleep_time=1
-            )  # 首先到达可抓取的高度位置(z单轴移动)
-            self.gripper_control(1, self.sleep_time)
-            # lift up the arm
-            self.arm.go_to_single_axis_target(2, self._pick_base_z + 0.05, sleep_time=1)
+            if not self._not_pick:
+                print("Start to pick up")
+                # start the pick up-action
+                # move down the robot arm
+                self.arm.go_to_single_axis_target(
+                    2, self._pick_base_z, sleep_time=1
+                )  # 首先到达可抓取的高度位置(z单轴移动)
+                # close the gripper
+                self.gripper_control(1, 1.2)
+                # lift up the arm
+                self.arm.go_to_single_axis_target(2, self._pick_base_z + 0.05, sleep_time=1)
 
-            # move to the desired position
-            self.arm.set_and_go_to_pose_target(
-                self.place_xyz, self.place_rpy, "0", self.sleep_time, return_enable=True
-            )
+                # move to the desired position
+                self.arm.set_and_go_to_pose_target(
+                    self.place_xyz, self.place_rpy, "0", self.sleep_time, return_enable=True
+                )
 
-            if self.cube_counter == 0:
-                self.set_vision_attention("place0")
+                if self.cube_counter == 0:
+                    self.set_vision_attention("place0")
+                else:
+                    self.set_vision_attention("place1")
+
+                # open the gripper
+                self.gripper_control(0, 1)
+                # lift up the arm
+                self.arm.go_to_single_axis_target(2, self._pick_base_z + 0.05, sleep_time=1)
+
+                # move back to pick up area
+                self.go_to_pick_pose()
+
+                # Define the termination condition
+                if self.cube_counter == 0:
+                    self.set_vision_attention("pick1")
+                else:
+                    self.set_vision_attention("pause")
+                    terminated = True
+                self.cube_counter += 1
             else:
-                self.set_vision_attention("place1")
-
-            self.gripper_control(0, self.sleep_time)
-            # lift up the arm
-            self.arm.go_to_single_axis_target(2, self._pick_base_z + 0.05, sleep_time=1)
-
-            # move back to pick up area
-            self.go_to_pick_pose()
-
-            # Define the termination condition
-            if self.cube_counter == 0:
-                self.set_vision_attention("pick1")
-            else:
-                self.set_vision_attention("pause")
                 terminated = True
-
-            self.cube_counter += 1
 
         return self._adjust_obs(observation), reward, terminated, truncated, info
 
@@ -278,7 +284,8 @@ class AIRbotPlayEnv(gym.Env):
         super().reset(seed=seed)
 
         print("Reset")
-        self.arm.go_to_named_or_joint_target("Home", sleep_time=0.5)
+        if self._sim_type != "real":
+            self.arm.go_to_named_or_joint_target("Home", sleep_time=0.5)
         # Reset the cubes and robot
         if self._sim_type == "gazebo":
             rospy.wait_for_service("/gazebo/reset_world")
@@ -286,7 +293,7 @@ class AIRbotPlayEnv(gym.Env):
             reset_world()
         elif self._sim_type == "isaac":
             rospy.set_param("/reset_isaac", True)
-        else:
+        elif self._sim_type == "gibson":
             rospy.set_param("/reset_gibson", True)
 
         # reset the robot arm to pick pose
@@ -297,6 +304,7 @@ class AIRbotPlayEnv(gym.Env):
         self.cube_counter = 0
         observation = self._get_obs()
         self.last_observation = observation.copy()
+        self.last_pixel_error = self._pixel_error
         info = {}
         return self._adjust_obs(observation), info
 

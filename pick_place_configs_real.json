@@ -1,5 +1,5 @@
 {
-    "SIM_TYPE": "isaac",
+    "SIM_TYPE": "real",
     "PICK_JOINT" : "AUTO",
     "PICK_POSITION_X" : 0.274,
     "PICK_POSITION_Y" : 0.0,
@@ -21,5 +21,5 @@
     "EXPECT_X": "AUTO",
     "EXPECT_PLACE_REF": 345,
     "KP": 10000,
-    "NOT_PICK": "True"
+    "NOT_PICK": "False"
 }

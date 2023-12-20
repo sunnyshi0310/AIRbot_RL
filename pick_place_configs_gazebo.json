@@ -1,4 +1,5 @@
 {
+    "SIM_TYPE": "gazebo",
     "PICK_JOINT" : "AUTO",
     "PICK_POSITION_X" : 0.59961,
     "PICK_POSITION_Y" : -0.17347,

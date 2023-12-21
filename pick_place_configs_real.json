@@ -3,7 +3,7 @@
     "PICK_JOINT" : "AUTO",
     "PICK_POSITION_X" : 0.274,
     "PICK_POSITION_Y" : 0.0,
-    "PICK_POSITION_Z" : -0.234,
+    "PICK_POSITION_Z" : 0.02,
     "PICK_ROLL" : 0,
     "PICK_PITCH": 1.570796,
     "PICK_YAW" : 0,

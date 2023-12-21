@@ -9,7 +9,7 @@ import numpy as np
 if __name__ == "__main__":
 
     def init_env(train_id, total_record=0):
-        env = AIRbotPlayEnv("./pick_place_configs_isaac.json")
+        env = AIRbotPlayEnv("./pick_place_configs_real.json")
         env.set_id(train_id)
         env.set_total_record(total_record)  # 总共记录多少step
         return env
@@ -68,11 +68,11 @@ if __name__ == "__main__":
     # evaluate(train_id, "saved_models/action27")
 
     train_id = 0
-    total_episodes = 3
+    total_episodes = 15
     for _ in range(total_episodes):
         print(f"Episode: {train_id}")
         try:
             # train(train_id)
-            evaluate(train_id, "saved_models/action27", 5)
+            evaluate(train_id, "saved_models/action27", 40)
         except:
             train_id += 1

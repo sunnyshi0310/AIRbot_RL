@@ -1,0 +1,23 @@
+{
+    "SIM_TYPE": "isaac",
+    "PICK_JOINT" : "AUTO",
+    "PICK_POSITION": [0.274, 0.0, -0.234],
+    "PICK_ORIENTATION": [0, 1.570796, 0],
+    "PICK_GRASP_Z": -0.266891,
+    "PLACE_POSITION": [0.274, 0.2, "PICK_GRASP_Z"],
+    "PLACE_ORIENTATION": ["PICK_ROLL", "PICK_PITCH", "PICK_YAW"],
+    "CUBE_HEIGHT" : 0.025,
+
+    "KP": 10000,
+    "PICK_KP": 10000,
+    "PLACE_KP": 20000,
+    "PICK_TOLERANCE": [6,3,2],
+    "PLACE_TOLERANCE": [6,3,2],
+    "NOT_PICK": "False",
+
+    "HSV1_L": [89, 74, 48],"HSV1_H": [157, 255, 255],
+    "HSV2_L": [66, 78, 81],"HSV2_H": [88,255,255],
+    "EXPECT_PICK_REF": 423,
+    "EXPECT_X": "AUTO",
+    "EXPECT_PLACE_REF": 345
+}

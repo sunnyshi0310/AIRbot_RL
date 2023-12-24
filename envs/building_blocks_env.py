@@ -9,7 +9,7 @@ from std_srvs.srv import Empty
 
 import numpy as np
 from airbot_play_control.control import RoboticArmAgent, ChooseGripper
-from robot_tools import conversions, transformations, recorder
+from robot_tools import conversions, transformations, recorder, pather
 from threading import Event
 from copy import deepcopy
 
@@ -22,38 +22,21 @@ class BuildingBlocksInterface(RoboticArmAgent):
         if isinstance(config, str):
             config = recorder.json_process(config)
         # Define the pick pose
-        self.pick_pose = [
-            config["PICK_POSITION_X"],
-            config["PICK_POSITION_Y"],
-            config["PICK_POSITION_Z"],
-            config["PICK_ROLL"],
-            config["PICK_PITCH"],
-            config["PICK_YAW"],
-        ]
+        self.pick_pose = config["PICK_POSITION"] + config["PICK_ORIENTATION"]
         self._pick_grasp_z = config["PICK_GRASP_Z"]
         if config["PICK_JOINT"] == "AUTO":
             self.pick_joint = self.change_pose_to_joints(self.pick_pose)
         else:  # use the pre-defined joint
             self.pick_joint = config["PICK_JOINT"]
-        if config["PLACE_POSITION_Z"] == "PICK_GRASP_Z":
-            config["PLACE_POSITION_Z"] = self._pick_grasp_z
-        self._place_base_z = config["PLACE_POSITION_Z"]
-        self.place_xyz = [
-            config["PLACE_POSITION_X"],
-            config["PLACE_POSITION_Y"],
-            config["PLACE_POSITION_Z"],
-        ]
-        if config["PLACE_ROLL"] == "PICK_ROLL":
-            config["PLACE_ROLL"] = config["PICK_ROLL"]
-        if config["PLACE_PITCH"] == "PICK_PITCH":
-            config["PLACE_PITCH"] = config["PICK_PITCH"]
-        if config["PLACE_YAW"] == "PICK_YAW":
-            config["PLACE_YAW"] = config["PICK_YAW"]
-        self.place_rpy = [
-            config["PLACE_ROLL"],
-            config["PLACE_PITCH"],
-            config["PLACE_YAW"],
-        ]
+        if config["PLACE_POSITION"][2] == "PICK_GRASP_Z":
+            config["PLACE_POSITION"][2] = self._pick_grasp_z
+        self._place_base_z = config["PLACE_POSITION"][2]
+        self.place_xyz = config["PLACE_POSITION"]
+        names = ["PICK_ROLL", "PICK_PITCH", "PICK_YAW"]
+        for i in range(3):
+            if config["PLACE_ORIENTATION"][i] == names[i]:
+                config["PLACE_ORIENTATION"][i] = config["PICK_ORIENTATION"][i]
+        self.place_rpy = config["PLACE_ORIENTATION"]
         self._cube_height = config["CUBE_HEIGHT"]
         self._detect_gap_place = 0.003
         self.pick_cnt = 0  # 记录pick动作的次数，也代表着循环的次数
@@ -90,20 +73,23 @@ class BuildingBlocksInterface(RoboticArmAgent):
             else:
                 return "place1"
 
-    def get_what_see(self, wait=False):
+    def get_what_see(self, wait=0):
         """
         获取视觉反馈信息:
             wait: 是否等待最新的视觉反馈
         """
-        if wait:
-            self._vision_event.wait()
+        if wait != 0:
+            if wait > 0:
+                self._vision_event.wait(wait)
+            else:
+                self._vision_event.wait()
         self._vision_event.clear()
         return self._pixel_error
 
     def go_to_pick_pose(self):
         self.go_to_named_or_joint_target(self.pick_joint, sleep_time=1)
 
-    def pick_detect(self):
+    def detect(self):
         self._set_vision_attention()
         rospy.sleep(0.2)
 
@@ -112,16 +98,19 @@ class BuildingBlocksInterface(RoboticArmAgent):
         self.gripper_control(1, 1.2)
         self.pick_cnt += 1
 
-    def lift_up_to_place_height(self):
+    def lift_up_to_place_detect_height(self):
         """抬起到放置检测时的高度（该函数调用后将会更新place的相关Z轴位置参数）"""
-        delta_z = self._cube_height * self.place_cnt
-        self.target_place_z = self._place_base_z + delta_z
-        self.detect_place_z = self.target_place_z + self._detect_gap_place
         if self.place_cnt == 0:
-            delta_z += self._cube_height + self._detect_gap_place
-        elif self.place_cnt == 1:
-            delta_z += self._detect_gap_place
-        self.go_to_single_axis_target(2, self._place_base_z + delta_z, sleep_time=1)
+            self.target_place_z = self._place_base_z
+            self.detect_place_z = (
+                self.target_place_z + self._cube_height + self._detect_gap_place
+            )
+        else:
+            self.target_place_z = (
+                self._place_base_z + self._cube_height * self.place_cnt
+            )
+            self.detect_place_z = self.target_place_z + self._detect_gap_place
+        self.go_to_single_axis_target(2, self.detect_place_z, sleep_time=1)
 
     def go_to_place_detect_pose(self):
         self.place_detect_xyz = (
@@ -136,13 +125,9 @@ class BuildingBlocksInterface(RoboticArmAgent):
         self._set_vision_attention("pause")
         self.go_down_to_grasp()
         rospy.sleep(0.5)
-        self.lift_up_to_place_height()
+        self.lift_up_to_place_detect_height()
         rospy.sleep(0.5)
         self.go_to_place_detect_pose()
-
-    def place_detect(self):
-        self._set_vision_attention()
-        rospy.sleep(0.2)
 
     def go_down_to_place(self):
         self.go_to_single_axis_target(2, self.target_place_z, sleep_time=1)
@@ -175,10 +160,10 @@ class BuildingBlocksInterface(RoboticArmAgent):
             print("pick_cnt:", self.pick_cnt)
             print("current_stage—1:", self.get_current_stage())
             self.go_to_pick_pose(), print("go_to_pick_pose_finish")
-            self.pick_detect(), print("pick_detect_finish")
+            self.detect(), print("pick_detect_finish")
             self.pick_detect_over(), print("pick_detect_over_finish")
             print("current_stage-2:", self.get_current_stage())
-            self.place_detect(), print("place_detect_finish")
+            self.detect(), print("place_detect_finish")
             self.place_detect_over(), print("place_detect_over_finish")
             print("place_cnt:", self.place_cnt)
             print(" ")
@@ -187,12 +172,6 @@ class BuildingBlocksInterface(RoboticArmAgent):
 
 class BuildingBlocksEnv(gym.Env):
     def __init__(self, config_path):
-        # Define ros related itemss
-        NODE_NAME = "AIRbot"
-        rospy.init_node(NODE_NAME, anonymous=True)
-        rospy.Subscriber(
-            "target_TF", TransformStamped, self._feedback_callback, queue_size=1
-        )
         # 读取配置文件
         config = recorder.json_process(config_path)
         self._sim_type = config["SIM_TYPE"]
@@ -203,16 +182,20 @@ class BuildingBlocksEnv(gym.Env):
         else:
             sim_type_g = self._sim_type
         self.gripper_control = ChooseGripper(sim_type=sim_type_g)()
-
-        # Use Moveit to control the robot arm
         other_config = None if sim_type_g != "gazbeo" else ("", "airbot_play_arm")
 
-        self.arm = RoboticArmAgent(
+        # 初始化机械臂搭积木控制接口
+        self.arm = BuildingBlocksInterface(
             node_name=NODE_NAME,
             gripper=(4, self.gripper_control),
             other_config=other_config,
         )
+        self.arm.configure(config)
 
+        """
+        The following array defines the range of the observations.
+        The first dimension corresponds to the minimum values, the second to the maximum.
+        """
         self.obs_range = np.array([[-10, -10, -10], [10, 10, 10]])
         self.observation_space = spaces.Box(
             low=self.obs_range[0],
@@ -238,41 +221,12 @@ class BuildingBlocksEnv(gym.Env):
         self.sleep_time = 2  # make sure the previous action is done
         self.cube_counter = 0
 
-        # count the properly settled cube
-        self._pixel_error = TransformStamped()  # initilize the pixel info
-
-        # Define the pick pose
-        self.pick_pose = [
-            config["PICK_POSITION_X"],
-            config["PICK_POSITION_Y"],
-            config["PICK_POSITION_Z"],
-            config["PICK_ROLL"],
-            config["PICK_PITCH"],
-            config["PICK_YAW"],
-        ]
-        self._pick_base_z = config["PICK_GRASP_Z"]
-        if config["PICK_JOINT"] == "AUTO":
-            self.pick_joint = self.arm.change_pose_to_joints(self.pick_pose)
-        else:  # use the pre-defined joint
-            self.pick_joint = config["PICK_JOINT"]
-        if config["PLACE_POSITION_Z"] == "PICK_GRASP_Z":
-            config["PLACE_POSITION_Z"] = self._pick_base_z
-        self.place_xyz = [
-            config["PLACE_POSITION_X"],
-            config["PLACE_POSITION_Y"],
-            config["PLACE_POSITION_Z"],
-        ]
-        if config["PLACE_ROLL"] == "PICK_ROLL":
-            config["PLACE_ROLL"] = config["PICK_ROLL"]
-        if config["PLACE_PITCH"] == "PICK_PITCH":
-            config["PLACE_PITCH"] = config["PICK_PITCH"]
-        self.place_rpy = [
-            config["PLACE_ROLL"],
-            config["PLACE_PITCH"],
-            config["PLACE_YAW"],
-        ]
-
         self._kp = config["KP"]
+        self._pick_kp = config["PICK_KP"]
+        self._place_kp = config["PLACE_KP"]
+        self._pick_tolerance = np.array(config["PICK_TOLERANCE"])
+        self._place_tolerance = np.array(config["PLACE_TOLERANCE"])
+
         str_to_bool = lambda x: True if x == "True" else False
         self._not_pick = str_to_bool(config["NOT_PICK"])
 
@@ -292,43 +246,55 @@ class BuildingBlocksEnv(gym.Env):
     def set_total_record(self, total_record):
         self._total_record = total_record
 
-    def go_to_pick_pose(self):
-        self.arm.go_to_named_or_joint_target(self.pick_joint, sleep_time=1)
-
-    def set_vision_attention(self, attention):
-        rospy.set_param("/vision_attention", attention)
+    def success_judge(self, observation: np.ndarray):
+        """判断是否成功"""
+        stage = self.arm.get_current_stage()
+        if "pick" in stage:
+            bias = self._pick_tolerance - np.abs(observation)
+            # print("error", bias)
+            return (bias >= 0).all()
+        elif "place" in stage:
+            bias = self._place_tolerance - np.abs(observation)
+            # print("error", bias)
+            return (bias >= 0).all()
+        else:
+            raise Exception("stage error")
 
     def step(self, action):
         print("observation", self.last_observation)
         print("action", action)
 
+        current_stage = self.arm.get_current_stage()
+
+        # pick and place的比例放缩分别配置
+        kp = self._pick_kp if "pick" in current_stage else self._place_kp
+
         # Take action
         direction = self._action_to_direction[int(action)]
-        inc = direction * np.abs(self.last_observation) / self._kp
-        inc[2] *= self._kp  # yaw无放缩
+        inc = direction * np.abs(self.last_observation) / kp
+        inc[2] *= kp  # yaw无放缩
         pos_inc = [inc[0], inc[1], 0]
         rot_inc = [0, 0, inc[2]]
 
-        # last表示给定值是基于上次目标值的增量
+        # 移动一步
         self.arm.set_and_go_to_pose_target(
             pos_inc, rot_inc, "last", 0.5, return_enable=True
         )
         # print("pos_inc", pos_inc)
         # print("rot_inc", rot_inc)
+
+        observation = self._get_obs()  # deviations x, y ,yaw
         self.no_target = False
-        if self.last_pixel_error == self._pixel_error:
+        if (self.last_observation == observation).all():
             self._no_target_check += 1
             if self._no_target_check > 4:
                 print("no target")
                 self.no_target = True
                 reward = -2000
         else:
-            self.last_pixel_error = self._pixel_error
+            # print("observation", observation)
+            self.last_observation = observation.copy()
             self._no_target_check = 0
-
-        observation = self._get_obs()  # deviations x, y ,yaw
-        # print("observation", observation)
-        self.last_observation = observation.copy()
 
         # Calculate reward
         if np.linalg.norm(observation) < np.linalg.norm(self.last_observation):
@@ -355,72 +321,38 @@ class BuildingBlocksEnv(gym.Env):
         truncated = False
         info = {}
 
-        if self.no_target or (
-            abs(observation[0]) < 6 and abs(observation[1]) < 3 and observation[2] < 0.1
-        ):  # threshold
+        # abs(observation[0]) < 6 and abs(observation[1]) < 3 and observation[2] < 0.1
+        if self.no_target or (self.success_judge(observation)):  # threshold
             reward += 1000
             if not self._not_pick:
-                print("Start to pick up")
-                # start the pick up-action
-                # move down the robot arm
-                self.arm.go_to_single_axis_target(
-                    2, self._pick_base_z, sleep_time=1
-                )  # 首先到达可抓取的高度位置(z单轴移动)
-                # close the gripper
-                self.gripper_control(1, 1.2)
-                # lift up the arm
-                self.arm.go_to_single_axis_target(
-                    2, self._pick_base_z + 0.05, sleep_time=1
-                )
-
-                # move to the desired position
-                self.arm.set_and_go_to_pose_target(
-                    self.place_xyz,
-                    self.place_rpy,
-                    "0",
-                    self.sleep_time,
-                    return_enable=True,
-                )
-
-                if self.cube_counter == 0:
-                    self.set_vision_attention("place0")
-                else:
-                    self.set_vision_attention("place1")
-
-                # open the gripper
-                self.gripper_control(0, 1)
-                # lift up the arm
-                self.arm.go_to_single_axis_target(
-                    2, self._pick_base_z + 0.05, sleep_time=1
-                )
-
-                # move back to pick up area
-                self.go_to_pick_pose()
-
+                if "pick" in current_stage:
+                    print("Start to pick block")
+                    # start the pick up-action
+                    self.arm.pick_detect_over()
+                    self.arm.detect()  # start place detect
+                elif "place" in current_stage:
+                    print("Start to place block")
+                    # start the place-action
+                    self.arm.place_detect_over()
+                    self.arm.go_to_pick_pose()
+                    self.arm.detect()  # start pick detect
                 # Define the termination condition
-                if self.cube_counter == 0:
-                    self.set_vision_attention("pick1")
-                else:
-                    self.set_vision_attention("pause")
+                if self.arm.place_cnt == 6:
                     terminated = True
-                self.cube_counter += 1
             else:
                 terminated = True
 
         return self._adjust_obs(observation), reward, terminated, truncated, info
 
     def _get_obs(self):
-        # deviations x, y ,yaw
-        return tf_to_xyzrpy(self._pixel_error)
+        # deviations: x, y ,yaw
+        return np.array(self.arm.get_what_see())
 
     def _adjust_obs(self, obs: np.ndarray):
         # adjust the observation from [-2000, 2000] to the range of [-10, 10]
         obs = obs.copy() / 200.0
         obs[2] *= 200.0
         return obs
-
-    def _feedback_callback(self, msg: TransformStamped):
-        self._pixel_error = msg
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
@@ -439,14 +371,13 @@ class BuildingBlocksEnv(gym.Env):
             rospy.set_param("/reset_gibson", True)
 
         # reset the robot arm to pick pose
-        self.go_to_pick_pose()
+        self.arm.go_to_pick_pose()
         # transit to pick mode for vision part
-        self.set_vision_attention("pick0")
+        self.arm.detect()
         rospy.sleep(0.2)
         self.cube_counter = 0
         observation = self._get_obs()
         self.last_observation = observation.copy()
-        self.last_pixel_error = self._pixel_error
         info = {}
         return self._adjust_obs(observation), info
 
@@ -454,11 +385,12 @@ class BuildingBlocksEnv(gym.Env):
         pass
 
 
-if __name__ == "__main__":
+TEST_ID = 1
+if __name__ == "__main__" and TEST_ID == 0:
     NODE_NAME = "BuildingBlocksInterfaceTest"
     rospy.init_node(NODE_NAME)
 
-    config = recorder.json_process("./pick_place_configs_isaac.json")
+    config = recorder.json_process("./pick_place_configs_isaac_new.json")
     sim_type = config["SIM_TYPE"]
     # 选择夹爪类型
     if "gazebo" in sim_type:
@@ -476,4 +408,85 @@ if __name__ == "__main__":
         other_config=other_config,
     )
     bbi.configure(config)
-    bbi.test(6)
+    bbi.test(1)
+
+
+elif __name__ == "__main__" and TEST_ID == 1:
+    from stable_baselines3 import PPO
+    import os
+
+    NODE_NAME = "BuildingBlocksEnvTest"
+    rospy.init_node(NODE_NAME)
+
+    def init_env(train_id, total_record=0):
+        env = BuildingBlocksEnv("./pick_place_configs_isaac_new.json")
+        env.set_id(train_id)
+        if total_record is None:
+            total_record = 0
+        env.set_total_record(total_record)  # 总共记录多少step
+        return env
+
+    def train(train_id):
+        env = init_env(train_id)
+        # model = PPO.load(f"saved_models/PPO_arm{train_id}", env=env)
+        model = PPO("MlpPolicy", env, verbose=1)
+        model.learn(total_timesteps=1e5)
+        model.save(f"saved_models/PPO_arm{train_id}")
+        env.close()
+        return model
+
+    def evaluate(train_id, model_path=None, total_steps=None):
+        models_dir = "saved_models"
+        if not os.path.exists(models_dir):
+            os.makedirs(models_dir)
+        env = init_env(train_id, total_steps)
+        if model_path is None:
+            model = PPO.load(f"saved_models/PPO_arm{train_id}", env=env)
+        else:
+            model = PPO.load(model_path, env=env)
+        episodes = 10
+        all_score = 0
+        end_error = 0
+        for episode in range(1, episodes + 1):
+            obs, info = env.reset()
+            done = False
+            score = 0
+            step_cnt = 0
+            while not done:
+                action, _ = model.predict(obs)  # 使用model来预测动作,返回预测的动作和下一个状态
+                last_obs = obs.copy()
+                # print(env.current_pose, env.target_pose)
+                obs, reward, done, _, info = env.step(action)
+                print(last_obs, action, reward)
+                # print(reward)
+                score += reward
+                all_score += score
+                step_cnt += 1
+                if total_steps is not None:
+                    if step_cnt != total_steps:
+                        if done == True:
+                            env.reset()
+                            done = False
+            end_error += np.linalg.norm(obs)
+            print("Episode:{} Score:{}".format(episode, score))
+        print("Average score:{}".format(all_score / episodes))
+        print("Average end_error:{}".format(end_error / episodes))
+        # print("Average step:{}".format(env._total_record / episodes))
+        # print("Original target error:", np.linalg.norm(env.target_pose))
+        env.close()
+
+    RECORD = False
+    if not RECORD:
+        train_id = 0
+        # train(train_id)
+        evaluate(train_id, "saved_models/action27")
+    else:
+        train_id = 0
+        total_episodes = 15
+        for _ in range(total_episodes):
+            print(f"Episode: {train_id}")
+            try:
+                # train(train_id)
+                evaluate(train_id, "saved_models/action27", 40)
+            except:
+                train_id += 1

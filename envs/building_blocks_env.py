@@ -1,65 +1,26 @@
 #!/usr/bin/env python3
 
-import numpy as np
-
-import tf_conversions
 import gymnasium as gym
 from gymnasium import spaces
+
 import rospy
 from geometry_msgs.msg import TransformStamped
-from gazebo_msgs.msg import ModelStates
 from std_srvs.srv import Empty
+
 import numpy as np
 from airbot_play_control.control import RoboticArmAgent, ChooseGripper
-
-
-def tf_to_xyzrpy(tf: TransformStamped):
-    """将TransformStamped格式的数据转换为xyz和rpy"""
-    xyz = [
-        tf.transform.translation.x,
-        tf.transform.translation.y,
-        tf.transform.translation.z,
-    ]
-    rpy = list(
-        tf_conversions.transformations.euler_from_quaternion(
-            [
-                tf.transform.rotation.x,
-                tf.transform.rotation.y,
-                tf.transform.rotation.z,
-                tf.transform.rotation.w,
-            ]
-        )
-    )
-    Obs2D = np.array([xyz[0], xyz[1], rpy[2]])
-    return Obs2D
-
-
-import json
-
-
-def json_process(file_path, write=None, log=False):
-    """读取/写入json文件"""
-
-    if write is not None:
-        with open(file_path, "w") as f_obj:
-            json.dump(write, f_obj)
-        if log:
-            print("写入数据为：", write)
-    else:
-        with open(file_path) as f_obj:
-            write = json.load(f_obj)
-        if log:
-            print("加载数据为：", write)
-    return write
+from robot_tools import conversions, transformations, recorder
+from threading import Event
+from copy import deepcopy
 
 
 class BuildingBlocksInterface(RoboticArmAgent):
     """搭积木任务的细分操作接口"""
 
-    def load_config(self, config):
-        """加载配置文件"""
+    def configure(self, config):
+        """参数配置"""
         if isinstance(config, str):
-            config = json_process(config)
+            config = recorder.json_process(config)
         # Define the pick pose
         self.pick_pose = [
             config["PICK_POSITION_X"],
@@ -69,13 +30,14 @@ class BuildingBlocksInterface(RoboticArmAgent):
             config["PICK_PITCH"],
             config["PICK_YAW"],
         ]
-        self._pick_base_z = config["PICK_GRASP_Z"]
+        self._pick_grasp_z = config["PICK_GRASP_Z"]
         if config["PICK_JOINT"] == "AUTO":
             self.pick_joint = self.change_pose_to_joints(self.pick_pose)
         else:  # use the pre-defined joint
             self.pick_joint = config["PICK_JOINT"]
         if config["PLACE_POSITION_Z"] == "PICK_GRASP_Z":
-            config["PLACE_POSITION_Z"] = self._pick_base_z
+            config["PLACE_POSITION_Z"] = self._pick_grasp_z
+        self._place_base_z = config["PLACE_POSITION_Z"]
         self.place_xyz = [
             config["PLACE_POSITION_X"],
             config["PLACE_POSITION_Y"],
@@ -85,15 +47,30 @@ class BuildingBlocksInterface(RoboticArmAgent):
             config["PLACE_ROLL"] = config["PICK_ROLL"]
         if config["PLACE_PITCH"] == "PICK_PITCH":
             config["PLACE_PITCH"] = config["PICK_PITCH"]
+        if config["PLACE_YAW"] == "PICK_YAW":
+            config["PLACE_YAW"] = config["PICK_YAW"]
         self.place_rpy = [
             config["PLACE_ROLL"],
             config["PLACE_PITCH"],
             config["PLACE_YAW"],
         ]
+        self._cube_height = config["CUBE_HEIGHT"]
+        self._detect_gap_place = 0.003
         self.pick_cnt = 0  # 记录pick动作的次数，也代表着循环的次数
         self.place_cnt = 0  # 记录place动作的次数，也代表着已经放置的积木的数量
+        rospy.Subscriber(
+            "target_TF", TransformStamped, self._feedback_callback, queue_size=1
+        )
+        self._pixel_error = None
+        self._vision_event = Event()
 
-    def _set_vision_attention(self, attention = None):
+    def _feedback_callback(self, msg: TransformStamped):
+        trans_list = conversions.transform_to_list(msg.transform)
+        rpy = transformations.euler_from_quaternion(trans_list[3:7])
+        self._pixel_error = (trans_list[0], trans_list[1], rpy[2])
+        self._vision_event.set()
+
+    def _set_vision_attention(self, attention=None):
         if attention is None:
             attention = self.get_current_stage()
         elif attention != "pause":
@@ -113,27 +90,46 @@ class BuildingBlocksInterface(RoboticArmAgent):
             else:
                 return "place1"
 
+    def get_what_see(self, wait=False):
+        """
+        获取视觉反馈信息:
+            wait: 是否等待最新的视觉反馈
+        """
+        if wait:
+            self._vision_event.wait()
+        self._vision_event.clear()
+        return self._pixel_error
+
     def go_to_pick_pose(self):
-        self.set_and_go_to_pose_target(
-            self.pick_pose, None, "0", 0.5, return_enable=True
-        )
+        self.go_to_named_or_joint_target(self.pick_joint, sleep_time=1)
 
     def pick_detect(self):
-        self._set_vision_attention("pick0")
+        self._set_vision_attention()
         rospy.sleep(0.2)
 
     def go_down_to_grasp(self):
-        self.go_to_single_axis_target(2, self._pick_base_z, sleep_time=1)
+        self.go_to_single_axis_target(2, self._place_base_z, sleep_time=1)
         self.gripper_control(1, 1.2)
         self.pick_cnt += 1
 
     def lift_up_to_place_height(self):
-        self.go_to_single_axis_target(2, self._pick_base_z + 0.05, sleep_time=1)
+        """抬起到放置检测时的高度（该函数调用后将会更新place的相关Z轴位置参数）"""
+        delta_z = self._cube_height * self.place_cnt
+        self.target_place_z = self._place_base_z + delta_z
+        self.detect_place_z = self.target_place_z + self._detect_gap_place
+        if self.place_cnt == 0:
+            delta_z += self._cube_height + self._detect_gap_place
+        elif self.place_cnt == 1:
+            delta_z += self._detect_gap_place
+        self.go_to_single_axis_target(2, self._place_base_z + delta_z, sleep_time=1)
 
-    def go_to_place_pose(self):
-        self.set_and_go_to_pose_target(
-            self.place_xyz, self.place_rpy, "0", 0.5, return_enable=True
+    def go_to_place_detect_pose(self):
+        self.place_detect_xyz = (
+            self.place_xyz[0],
+            self.place_xyz[1],
+            self.detect_place_z,
         )
+        self.set_and_go_to_pose_target(self.place_detect_xyz, self.place_rpy, "0", 0.5)
 
     def pick_detect_over(self):
         """pick动作组合"""
@@ -142,19 +138,28 @@ class BuildingBlocksInterface(RoboticArmAgent):
         rospy.sleep(0.5)
         self.lift_up_to_place_height()
         rospy.sleep(0.5)
-        self.go_to_place_pose()
+        self.go_to_place_detect_pose()
 
     def place_detect(self):
-        self._set_vision_attention("place0")
+        self._set_vision_attention()
         rospy.sleep(0.2)
 
     def go_down_to_place(self):
-        self.go_to_single_axis_target(2, self._pick_base_z, sleep_time=1)
+        self.go_to_single_axis_target(2, self.target_place_z, sleep_time=1)
         self.gripper_control(0, 1.2)
         self.place_cnt += 1
 
     def go_up_to_avoid_collision(self):
-        self.go_to_single_axis_target(2, self._pick_base_z + 0.05, sleep_time=1)
+        pose1 = deepcopy(self.last_target_pose.pose)
+        pose1.position.z = self.last_xyz[2] + self._cube_height + 0.01  # 先上升
+        pose2 = deepcopy(pose1)
+        delta_y = 0.075
+        # 然后向右/左移动一段距离(取决于在哪侧搭建)
+        if self.place_xyz[1] > self.pick_pose[1]:
+            pose2.position.y = self.last_xyz[1] - delta_y
+        else:
+            pose2.position.y = self.last_xyz[1] + delta_y
+        self.set_and_go_to_way_points([pose1, pose2], allowed_fraction=0.6)
 
     def place_detect_over(self):
         """place动作组合"""
@@ -164,14 +169,20 @@ class BuildingBlocksInterface(RoboticArmAgent):
         self.go_up_to_avoid_collision()
         rospy.sleep(0.5)
 
-    def test(self):
+    def test(self, episodes=10):
         """动作循环测试"""
-        self.go_to_pick_pose()
-
-        self.pick_detect()
-        self.pick_detect_over()
-        self.place_detect()
-        self.place_detect_over()
+        for _ in range(episodes):
+            print("pick_cnt:", self.pick_cnt)
+            print("current_stage—1:", self.get_current_stage())
+            self.go_to_pick_pose(), print("go_to_pick_pose_finish")
+            self.pick_detect(), print("pick_detect_finish")
+            self.pick_detect_over(), print("pick_detect_over_finish")
+            print("current_stage-2:", self.get_current_stage())
+            self.place_detect(), print("place_detect_finish")
+            self.place_detect_over(), print("place_detect_over_finish")
+            print("place_cnt:", self.place_cnt)
+            print(" ")
+        print("test finished")
 
 
 class BuildingBlocksEnv(gym.Env):
@@ -183,7 +194,7 @@ class BuildingBlocksEnv(gym.Env):
             "target_TF", TransformStamped, self._feedback_callback, queue_size=1
         )
         # 读取配置文件
-        config = json_process(config_path)
+        config = recorder.json_process(config_path)
         self._sim_type = config["SIM_TYPE"]
 
         # 选择夹爪类型
@@ -336,7 +347,9 @@ class BuildingBlocksEnv(gym.Env):
             self._recorder["action"].append(inc.tolist())
             self._recorder["reward"].append(reward)
             if self._recorder["num"] == self._total_record:
-                json_process(f"./data_real_{self._id}.json", write=self._recorder)
+                recorder.json_process(
+                    f"./data_real_{self._id}.json", write=self._recorder
+                )
                 raise Exception("stop")
         terminated = False
         truncated = False
@@ -442,8 +455,25 @@ class BuildingBlocksEnv(gym.Env):
 
 
 if __name__ == "__main__":
-    pass
-    # from stable_baselines3.common.env_checker import check_env
+    NODE_NAME = "BuildingBlocksInterfaceTest"
+    rospy.init_node(NODE_NAME)
 
-    # env = AIRbotPlayEnv()
-    # check_env(env, warn = True)
+    config = recorder.json_process("./pick_place_configs_isaac.json")
+    sim_type = config["SIM_TYPE"]
+    # 选择夹爪类型
+    if "gazebo" in sim_type:
+        sim_type_g = "gazebo"
+    else:
+        sim_type_g = sim_type
+    gripper_control = ChooseGripper(sim_type=sim_type_g)()
+
+    # Use Moveit to control the robot arm
+    other_config = None if sim_type_g != "gazbeo" else ("", "airbot_play_arm")
+
+    bbi = BuildingBlocksInterface(
+        node_name=NODE_NAME,
+        gripper=(4, gripper_control),
+        other_config=other_config,
+    )
+    bbi.configure(config)
+    bbi.test(6)

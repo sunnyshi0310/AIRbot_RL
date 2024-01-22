@@ -230,12 +230,14 @@ class BuildingBlocksEnv(gym.Env):
         str_to_bool = lambda x: True if x == "True" else False
         self._not_pick = str_to_bool(config["NOT_PICK"])
 
-        self._recorder = {
-            "time": [],
+        self.reset_cnt = -1
+        self.raw_dict = {
             "observation": [],
             "action": [],
-            "reward": [],
             "num": 0,
+        }
+        self._recorder = {
+            0: self.raw_dict.copy(),
         }
         self._time_base = rospy.get_time()
         self._no_target_check = 0
@@ -278,7 +280,7 @@ class BuildingBlocksEnv(gym.Env):
 
         # 移动一步
         self.arm.set_and_go_to_pose_target(
-            pos_inc, rot_inc, "last", 0.5, return_enable=True
+            pos_inc, rot_inc, "last", 0.7, return_enable=True
         )
         # print("pos_inc", pos_inc)
         # print("rot_inc", rot_inc)
@@ -304,19 +306,20 @@ class BuildingBlocksEnv(gym.Env):
             print("not perfect")
 
         # record the steps
-        self._recorder["num"] += 1
-        print("num:", self._recorder["num"])
+        self._recorder[self.reset_cnt]["num"] += 1
+        print("num:", self._recorder[self.reset_cnt]["num"])
         # record the data
         if self._total_record > 0:
-            self._recorder["time"].append(rospy.get_time() - self._time_base)
-            self._recorder["observation"].append(self.last_observation.tolist())
-            self._recorder["action"].append(inc.tolist())
-            self._recorder["reward"].append(reward)
-            if self._recorder["num"] == self._total_record:
+            if self.reset_cnt == self._total_record:
+                self._recorder.pop(self.reset_cnt)
                 recorder.json_process(
-                    f"./data_real_{self._id}.json", write=self._recorder
+                    f"./data_sim_{self._id}.json", write=self._recorder
                 )
                 raise Exception("stop")
+            self._recorder[self.reset_cnt]["observation"].append(
+                self.last_observation.tolist()
+            )
+            self._recorder[self.reset_cnt]["action"].append(inc.tolist())
         terminated = False
         truncated = False
         info = {}
@@ -356,19 +359,22 @@ class BuildingBlocksEnv(gym.Env):
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
-
+        self.reset_cnt += 1
+        self._recorder[self.reset_cnt] = self.raw_dict.copy()
         print("Reset")
-        if self._sim_type != "real":
-            self.arm.go_to_named_or_joint_target("Home", sleep_time=0.5)
-        # Reset the cubes and robot
-        if self._sim_type == "gazebo":
-            rospy.wait_for_service("/gazebo/reset_world")
-            reset_world = rospy.ServiceProxy("/gazebo/reset_world", Empty)
-            reset_world()
-        elif self._sim_type == "isaac":
-            rospy.set_param("/reset_isaac", True)
-        elif self._sim_type == "gibson":
-            rospy.set_param("/reset_gibson", True)
+        not_reset = True
+        if not not_reset:
+            if self._sim_type != "real":
+                self.arm.go_to_named_or_joint_target("Home", sleep_time=0.5)
+            # Reset the cubes and robot
+            if self._sim_type == "gazebo":
+                rospy.wait_for_service("/gazebo/reset_world")
+                reset_world = rospy.ServiceProxy("/gazebo/reset_world", Empty)
+                reset_world()
+            elif self._sim_type == "isaac":
+                rospy.set_param("/reset_isaac", True)
+            elif self._sim_type == "gibson":
+                rospy.set_param("/reset_gibson", True)
 
         # reset the robot arm to pick pose
         self.arm.go_to_pick_pose()
@@ -408,7 +414,7 @@ if __name__ == "__main__" and TEST_ID == 0:
         other_config=other_config,
     )
     bbi.configure(config)
-    bbi.test(1)
+    bbi.test(2)
 
 
 elif __name__ == "__main__" and TEST_ID == 1:
@@ -453,7 +459,7 @@ elif __name__ == "__main__" and TEST_ID == 1:
             score = 0
             step_cnt = 0
             while not done:
-                action, _ = model.predict(obs)  # 使用model来预测动作,返回预测的动作和下一个状态
+                action, _ = model.predict(obs)
                 last_obs = obs.copy()
                 # print(env.current_pose, env.target_pose)
                 obs, reward, done, _, info = env.step(action)
@@ -475,18 +481,19 @@ elif __name__ == "__main__" and TEST_ID == 1:
         # print("Original target error:", np.linalg.norm(env.target_pose))
         env.close()
 
-    RECORD = False
+    RECORD = True
     if not RECORD:
         train_id = 0
         # train(train_id)
         evaluate(train_id, "saved_models/action27")
     else:
-        train_id = 0
-        total_episodes = 15
+        train_id = 2
+        total_episodes = 1
         for _ in range(total_episodes):
             print(f"Episode: {train_id}")
             try:
                 # train(train_id)
-                evaluate(train_id, "saved_models/action27", 40)
-            except:
+                evaluate(train_id, "saved_models/action27", 1)
+            except Exception as e:
+                print(e)
                 train_id += 1

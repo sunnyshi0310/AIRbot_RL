@@ -21,5 +21,5 @@
     "EXPECT_X": "AUTO",
     "EXPECT_PLACE_REF": 345,
     "KP": 10000,
-    "NOT_PICK": "False"
+    "NOT_PICK": "True"
 }

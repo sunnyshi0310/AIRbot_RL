@@ -1,6 +1,9 @@
 # AIRbot_RL
 
 ```bash
+conda create -n rl python=3.8
+conda activate rl
+
 git clone https://github.com/sunnyshi0310/AIRbot_RL.git
 
 pip install stable_baselines3

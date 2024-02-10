@@ -9,7 +9,7 @@ from std_srvs.srv import Empty
 
 import numpy as np
 from airbot_play_control.control import RoboticArmAgent, ChooseGripper
-from robot_tools import conversions, transformations, recorder, pather
+from robot_tools import conversions, transformations, recorder
 from threading import Event
 from copy import deepcopy
 
@@ -392,32 +392,7 @@ class BuildingBlocksEnv(gym.Env):
 
 
 TEST_ID = 1
-if __name__ == "__main__" and TEST_ID == 0:
-    NODE_NAME = "BuildingBlocksInterfaceTest"
-    rospy.init_node(NODE_NAME)
-
-    config = recorder.json_process("./pick_place_configs_isaac_new.json")
-    sim_type = config["SIM_TYPE"]
-    # 选择夹爪类型
-    if "gazebo" in sim_type:
-        sim_type_g = "gazebo"
-    else:
-        sim_type_g = sim_type
-    gripper_control = ChooseGripper(sim_type=sim_type_g)()
-
-    # Use Moveit to control the robot arm
-    other_config = None if sim_type_g != "gazbeo" else ("", "airbot_play_arm")
-
-    bbi = BuildingBlocksInterface(
-        node_name=NODE_NAME,
-        gripper=(4, gripper_control),
-        other_config=other_config,
-    )
-    bbi.configure(config)
-    bbi.test(2)
-
-
-elif __name__ == "__main__" and TEST_ID == 1:
+if __name__ == "__main__" and TEST_ID == 1:
     from stable_baselines3 import PPO
     import os
 

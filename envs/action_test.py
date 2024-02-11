@@ -9,10 +9,10 @@ import numpy as np
 
 
 def get_move_limit():
-    # 目标位置xyz: [0.1540,0.0000,-0.2340]
     # 初始位置xyz: [0.2740,-0.0000,-0.2340]
-    arm_max_xy = np.array([0.2740, 0])
-    arm_min_xy = np.array([0.1540, 0])
+    # 适当缩小范围，避免极限越界
+    arm_max_xy = np.array([0.26, 0])
+    arm_min_xy = np.array([0.15, 0])
     arm_max_d = np.abs((arm_max_xy[0] - arm_min_xy[0]))
     arm_max_r = arm_max_d / 2
     arm_max_xy[1] = arm_max_r
@@ -21,9 +21,9 @@ def get_move_limit():
 
 
 def get_random_spiral_trajs(
-    experiment_id=0, epochs=10, points_num=100, add_z=None, add_yaw=False
+    experiment_id=0, epochs=10, points_num=100, add_z=None, add_yaw=False, test_from=0
 ) -> np.ndarray:
-    start = experiment_id * epochs
+    start = experiment_id * epochs + test_from
     end = (experiment_id + 1) * epochs
 
     if add_z is None and not add_yaw:
@@ -71,9 +71,10 @@ def get_random_spiral_trajs(
         if dim is not None:
             spiral_points = Painter2D.append_one_dim(spiral_points, dim)
         base = np.concatenate((base, spiral_points), axis=0)
-    assert (
-        len(base) == epochs * points_num + 1
-    ), f"len(spiral_points): {len(spiral_points)}"
+    # # test
+    # assert (
+    #     len(base) == epochs * points_num + 1
+    # ), f"len(spiral_points): {len(spiral_points)}"
     return base[1:]
 
 

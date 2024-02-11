@@ -8,12 +8,28 @@ from building_blocks_env import BuildingBlocksInterface
 import numpy as np
 
 
+def get_move_limit():
+    # 目标位置xyz: [0.1540,0.0000,-0.2340]
+    # 初始位置xyz: [0.2740,-0.0000,-0.2340]
+    arm_max_xy = np.array([0.2740, 0])
+    arm_min_xy = np.array([0.1540, 0])
+    arm_max_d = np.abs((arm_max_xy[0] - arm_min_xy[0]))
+    arm_max_r = arm_max_d / 2
+    arm_max_xy[1] = arm_max_r
+    arm_min_xy[1] = -arm_max_r
+    return arm_max_xy, arm_min_xy, arm_max_d
+
+
 def get_random_spiral_trajs(
-    experiment_id=0, epochs=10, points_num=100, add_z=True, add_yaw=False
+    experiment_id=0, epochs=10, points_num=100, add_z=None, add_yaw=False
 ) -> np.ndarray:
-    base = np.ones((1, 3))
     start = experiment_id * epochs
     end = (experiment_id + 1) * epochs
+
+    if add_z is None and not add_yaw:
+        base = np.ones((1, 2))
+    else:
+        base = np.ones((1, 3))
 
     for i in range(start, end):
         np.random.seed(i)
@@ -21,37 +37,39 @@ def get_random_spiral_trajs(
         end_phase = 3 / 2 * np.pi
         roation = np.random.uniform(0, 2 * np.pi)
 
+        if add_z is not None:  # 增加随机高度
+            dim = np.random.uniform(add_z, add_z + 0.02, size=points_num)
+        elif add_yaw:  # 增加随机旋转
+            dim = np.random.uniform(-np.pi / 4, np.pi / 4, size=points_num)
+        else:
+            dim = None
+
         spiral_points = Painter2D.get_spiral_points(
             a, b, num_points, turns, end_phase=end_phase, points_allocate_mode="turn"
         )
         spiral_points = Painter2D.reverse_points(spiral_points)
         spiral_points = Painter2D.rotate_points(spiral_points, roation)
 
-        # 目标位置xyz: [0.1540,0.0000,-0.2340]
-        # 初始位置xyz: [0.2740,-0.0000,-0.2340]
-        arm_max_xy = np.array([0.2740, 0])
-        arm_min_xy = np.array([0.1540, 0])
-        arm_max_d = np.abs((arm_max_xy[0] - arm_min_xy[0]))
+        arm_max_xy, arm_min_xy, arm_max_d = get_move_limit()
 
         spiral_r = np.max(np.abs(spiral_points[0]))
         spiral_max_r = arm_max_d / 2
-        spiral_min_r = spiral_max_r / 3
-        spiral_ran_r = np.random.uniform(spiral_min_r, spiral_max_r)
-        factor = spiral_r / spiral_ran_r
-        init_max_xy = arm_max_xy - spiral_ran_r
-        init_min_xy = arm_min_xy + spiral_ran_r
+        spiral_min_r = spiral_max_r / 3  # 避免移动距离过小
+        spiral_ran_r_x = np.random.uniform(spiral_min_r, spiral_max_r)
+        # 1280/720=1.777...
+        spiral_ran_r_y = np.random.uniform(spiral_min_r, spiral_max_r * 1.778)
+        factor_x = spiral_r / spiral_ran_r_x
+        factor_y = spiral_r / spiral_ran_r_y
+        spiral_ran_r_xy = np.array([spiral_ran_r_x, spiral_ran_r_y])
+        # 根据生成的轨迹范围确定初始位置范围
+        init_max_xy = arm_max_xy - spiral_ran_r_xy
+        init_min_xy = arm_min_xy + spiral_ran_r_xy
 
-        spiral_points /= np.array([factor, factor / 2])
+        spiral_points /= np.array([factor_x, factor_y])
         spiral_points += np.random.uniform(init_min_xy, init_max_xy)
 
-        # 增加z轴坐标
-        if add_z:
-            dim = -0.2340
-        # 增加随机旋转
-        elif add_yaw:
-            dim = np.random.uniform(-np.pi / 4, np.pi / 4, size=len(spiral_points))
-
-        spiral_points = Painter2D.append_one_dim(spiral_points, dim)
+        if dim is not None:
+            spiral_points = Painter2D.append_one_dim(spiral_points, dim)
         base = np.concatenate((base, spiral_points), axis=0)
     assert (
         len(base) == epochs * points_num + 1

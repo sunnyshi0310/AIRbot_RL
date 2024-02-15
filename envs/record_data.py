@@ -11,8 +11,7 @@ if __name__ == "__main__":
     rospy.init_node(NODE_NAME)
 
     feature_names = ["observation", "action", "raw_target"]
-    tr = TrajsRecorder(feature_names, "trajs_recorder.json", count="num")
-    # tr.set_not_count_features({"raw_target"})
+    tr = TrajsRecorder(feature_names, "trajs_recorder.json")
 
     bbi = get_agent(NODE_NAME)
     bbi.go_to_pick_pose()  # 初始控制
@@ -29,15 +28,14 @@ if __name__ == "__main__":
 
     experiment_id = 0  # 决定随机种子
     trajs = get_random_spiral_trajs(
-        experiment_id, epochs=20, points_num=10, add_z=None, add_yaw=False, test_from=0
+        experiment_id, epochs=2, points_num=2, add_z=None, add_yaw=False, test_from=0
     )
     # 重复动作（因为会得到略有不同的观测）
-    duplicate = 5
+    duplicate = 2
     trajs = TrajTools.repeat_trajs(trajs, duplicate, "v")
     # trajs_lenth = len(trajs)
     # assert trajs_lenth == 200 * 5
     # 计算相对动作
-    # ref_trajs = np.delete(np.insert(trajs, 0, [base_target_xy_yaw], axis=0), -1, axis=0)
     ref_trajs = TrajTools.insert_point(trajs, 0, base_target_xy_yaw, "v", True)
     inc_trajs = trajs - ref_trajs
 

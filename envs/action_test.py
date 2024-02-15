@@ -8,11 +8,15 @@ from building_blocks_env import BuildingBlocksInterface
 import numpy as np
 
 
-def get_move_limit():
+def get_move_limit(kind="isaac"):
     # 初始位置xyz: [0.2740,-0.0000,-0.2340]
     # 适当缩小范围，避免极限越界
-    arm_max_xy = np.array([0.26, 0])
-    arm_min_xy = np.array([0.15, 0])
+    if kind == "isaac":
+        arm_max_xy = np.array([0.26, 0])
+        arm_min_xy = np.array([0.15, 0])
+    elif kind == "real_home":
+        arm_max_xy = np.array([0.26, 0])
+        arm_min_xy = np.array([0.15, 0])
     arm_max_d = np.abs((arm_max_xy[0] - arm_min_xy[0]))
     arm_max_r = arm_max_d / 2
     arm_max_xy[1] = arm_max_r

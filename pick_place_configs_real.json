@@ -1,7 +1,7 @@
 {
     "SIM_TYPE": "real",
     "PICK_JOINT" : "AUTO",
-    "PICK_POSITION": [0.274, 0.0, 0.09],
+    "PICK_POSITION": [0.274, 0.0, 0.03],
     "PICK_ORIENTATION": [0, 1.570796, 0],
     "PICK_GRASP_Z": 0.0,
     "PLACE_POSITION": [0.274, 0.2, "PICK_GRASP_Z"],

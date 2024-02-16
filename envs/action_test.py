@@ -8,20 +8,25 @@ from building_blocks_env import BuildingBlocksInterface
 import numpy as np
 
 
-def get_move_limit(kind="isaac"):
-    # 初始位置xyz: [0.2740,-0.0000,-0.2340]
+def get_move_limit(robot_type="real"):
     # 适当缩小范围，避免极限越界
-    if kind == "isaac":
+    if robot_type == "isaac":
+        # 初始位置xyz: [0.2740,-0.0000,-0.2340]
+        # 最下位姿：[0.15,-0.0000,-0.2340]
         arm_max_xy = np.array([0.26, 0])
         arm_min_xy = np.array([0.15, 0])
-    elif kind == "real_home":
+        hw_ratio = 1280 / 720
+    elif robot_type == "real":
+        # 初始位置xyz: [0.2740,0.0000,0.03]
+        # 最下位姿：xyz: [0.1740,0.0000,0.03]
         arm_max_xy = np.array([0.26, 0])
-        arm_min_xy = np.array([0.15, 0])
+        arm_min_xy = np.array([0.174, 0])
+        hw_ratio = 640 / 480
     arm_max_d = np.abs((arm_max_xy[0] - arm_min_xy[0]))
     arm_max_r = arm_max_d / 2
     arm_max_xy[1] = arm_max_r
     arm_min_xy[1] = -arm_max_r
-    return arm_max_xy, arm_min_xy, arm_max_d
+    return arm_max_xy, arm_min_xy, arm_max_d, hw_ratio
 
 
 def get_random_spiral_trajs(
@@ -54,14 +59,14 @@ def get_random_spiral_trajs(
         spiral_points = Painter2D.reverse_points(spiral_points)
         spiral_points = Painter2D.rotate_points(spiral_points, roation)
 
-        arm_max_xy, arm_min_xy, arm_max_d = get_move_limit()
+        arm_max_xy, arm_min_xy, arm_max_d, hw_ratio = get_move_limit()
 
         spiral_r = np.max(np.abs(spiral_points[0]))
         spiral_max_r = arm_max_d / 2
         spiral_min_r = spiral_max_r / 3  # 避免移动距离过小
         spiral_ran_r_x = np.random.uniform(spiral_min_r, spiral_max_r)
-        # 1280/720=1.777...
-        spiral_ran_r_y = np.random.uniform(spiral_min_r, spiral_max_r * 1.778)
+        # 1280/720=1.777...; 640 / 480=1.333...
+        spiral_ran_r_y = np.random.uniform(spiral_min_r, spiral_max_r * hw_ratio)
         factor_x = spiral_r / spiral_ran_r_x
         factor_y = spiral_r / spiral_ran_r_y
         spiral_ran_r_xy = np.array([spiral_ran_r_x, spiral_ran_r_y])

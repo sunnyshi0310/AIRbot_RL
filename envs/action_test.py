@@ -82,8 +82,10 @@ def get_random_spiral_trajs(
     return base[1:]
 
 
-def get_agent(node_name, path_pre=".") -> BuildingBlocksInterface:
-    config = recorder.json_process(f"{path_pre}/pick_place_configs_isaac_new.json")
+def get_agent(node_name, path_pre=".", file_name=None) -> BuildingBlocksInterface:
+    if file_name is None:
+        file_name = "pick_place_configs_isaac_new.json"
+    config = recorder.json_process(f"{path_pre}/{file_name}")
     sim_type = config["SIM_TYPE"]
 
     # 选择夹爪类型

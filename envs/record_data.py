@@ -2,19 +2,47 @@
 import rospy
 from action_test import get_random_spiral_trajs, get_agent, get_move_limit
 from robot_tools.trajer import TrajsRecorder, TrajTools
+from robot_tools import pather
 import numpy as np
+import argparse
 
 
 if __name__ == "__main__":
 
+    # 参数解析
+    parser = argparse.ArgumentParser(description="Record data")
+    parser.add_argument(
+        "-jpp", "--just_pick_pose", action="store_true", help="Just go to pick pose"
+    )
+    parser.add_argument(
+        "-rt", "--robot_type", type=str, default="real", help="Robot type: real or sim"
+    )
+    parser.add_argument(
+        "-sp", "--save_path", type=str, default="", help="Save path"
+    )
+    args, unknown = parser.parse_known_args()
+
     NODE_NAME = "record_data_node"
     rospy.init_node(NODE_NAME)
 
-    feature_names = ["observation", "action", "raw_target"]
-    tr = TrajsRecorder(feature_names, "trajs_recorder.json")
+    robot_type = args.robot_type
+    print(f"robot_type: {robot_type}")
+    if robot_type == "real":
+        file_name = "pick_place_configs_real.json"
+    elif robot_type == "isaac":
+        file_name = "pick_place_configs_isaac_new.json"
+    prefix = pather.get_current_dir(__file__, upper=1)
+    args.save_path = f"{prefix}/trajs_recorder.json" if args.save_path == "" else args.save_path
+    bbi = get_agent(NODE_NAME, prefix, file_name=file_name)
+    bbi.go_to_pick_pose()  # 初始控制real: [0.274, 0.0, 0.03] aloha二值刚好接触地面
+    if args.just_pick_pose:
+        rospy.spin()
+        exit(0)
 
-    bbi = get_agent(NODE_NAME)
-    bbi.go_to_pick_pose()  # 初始控制
+    # 初始化轨迹记录器
+    feature_names = ["observation", "action", "raw_target"]
+    tr = TrajsRecorder(feature_names, args.save_path)
+
     # 添加随机初始偏移
     arm_max_xy, arm_min_xy, arm_max_d = get_move_limit()
     init_xy = np.random.uniform(arm_min_xy, arm_max_xy)
@@ -28,10 +56,10 @@ if __name__ == "__main__":
 
     experiment_id = 0  # 决定随机种子
     trajs = get_random_spiral_trajs(
-        experiment_id, epochs=2, points_num=2, add_z=None, add_yaw=False, test_from=0
+        experiment_id, epochs=20, points_num=10, add_z=None, add_yaw=False, test_from=0
     )
     # 重复动作（因为会得到略有不同的观测）
-    duplicate = 2
+    duplicate = 5
     trajs = TrajTools.repeat_trajs(trajs, duplicate, "v")
     # trajs_lenth = len(trajs)
     # assert trajs_lenth == 200 * 5
@@ -63,4 +91,4 @@ if __name__ == "__main__":
             obs = obs_temp
         cnt += 1
 
-    tr.save("trajs_recorder.json")
+    tr.save()

@@ -44,7 +44,7 @@ if __name__ == "__main__":
     tr = TrajsRecorder(feature_names, args.save_path)
 
     # 添加随机初始偏移
-    arm_max_xy, arm_min_xy, arm_max_d = get_move_limit()
+    arm_max_xy, arm_min_xy, arm_max_d, hw_ratio = get_move_limit()
     init_xy = np.random.uniform(arm_min_xy, arm_max_xy)
     bbi.detect()  # 使能视觉检测
 
@@ -56,7 +56,7 @@ if __name__ == "__main__":
 
     experiment_id = 0  # 决定随机种子
     trajs = get_random_spiral_trajs(
-        experiment_id, epochs=20, points_num=10, add_z=None, add_yaw=False, test_from=0
+        experiment_id, epochs=20, points_num=10, add_z=None, add_yaw=False, test_from=10
     )
     # 重复动作（因为会得到略有不同的观测）
     duplicate = 5

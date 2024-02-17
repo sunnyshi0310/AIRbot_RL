@@ -126,7 +126,7 @@ if __name__ == "__main__":
     """
     NODE_NAME = "BuildingBlocksInterfaceTest"
     rospy.init_node(NODE_NAME)
-    bbi = get_agent()
+    bbi:BuildingBlocksInterface = get_agent()
     TEST_ID = 1
     if TEST_ID == 0:
         bbi.test(2)

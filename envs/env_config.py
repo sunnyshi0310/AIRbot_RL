@@ -5,6 +5,7 @@ from copy import deepcopy
 
 """环境配置基类，用于方便多样化环境设置与调整."""
 
+
 class Observation(object):
     def __init__(self, config) -> None:
         self.range = None
@@ -18,6 +19,7 @@ class Observation(object):
     def convert(self, observation, *args, **kwargs):
         """Convert observation to the format used by RL."""
         return observation
+
 
 class Action(object):
     def __init__(self, config) -> None:
@@ -56,7 +58,8 @@ class Environment(object):
         if max_record_steps <= 0:
             return
         self._tr = TrajsRecorder(
-            ["observation", "action", "reward"], path + f"_{experiment_id}.json",
+            ["observation", "action", "reward"],
+            path + f"_{experiment_id}.json",
         )
         self._experiment_id = experiment_id
         self._max_record_steps = max_record_steps
@@ -100,6 +103,7 @@ class Environment(object):
         self._tr.save()
 
     def record_working(self):
+        """Whether the record has been started."""
         return self._tr is not None
 
     @property
@@ -146,9 +150,35 @@ class Environment(object):
 
 
 if __name__ == "__main__":
-    import gymnasium as gym
+    from gymnasium import spaces
+    import numpy as np
 
-    class Example(Environment):
+    class ObsCustom(Observation):
+        def config1(self):
+            self.obs_range = np.array([[-5, -5, -3], [5, 5, 3]])
+            self.observation_space = spaces.Box(
+                low=self.obs_range[0],
+                high=self.obs_range[1],
+                dtype=np.integer,
+            )
 
+    class ActionCustom(Action):
+        def config1(self):
+            self.action_space = spaces.Discrete(27)
+            values = [0, 1, -1]
+            self.action_to_direction = {}
+            cnt = 0
+            for i in values:
+                for j in values:
+                    for k in values:
+                        self.action_to_direction[cnt] = np.array([i, j, k])
+                        cnt += 1  # 所有可能方向的排列组合
+            self.convert = lambda action: self.action_to_direction[action]
+
+    class EnvCustom(Environment):
         def __init__(self, obs_cfg, act_cfg):
             super().__init__(obs_cfg, act_cfg)
+            print("Observation space:", self.obs_cfg.space)
+            print("Action space:", self.act_cfg.space)
+
+    env = EnvCustom(ObsCustom(1), ActionCustom(1))

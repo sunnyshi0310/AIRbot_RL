@@ -32,7 +32,7 @@ class ActionConfig(object):
         eval(f"self.config{config}")()
 
     def config1(self):
-        self.action_space = spaces.Discrete(27)
+        self.space = spaces.Discrete(27)
         values = [0, 1, -1]
         self.action_to_direction = {}
         cnt = 0
@@ -44,7 +44,7 @@ class ActionConfig(object):
         self._action_to_direction = lambda action: self.action_to_direction[action]
 
     def config2(self):
-        self.action_space = spaces.Discrete(6)
+        self.space = spaces.Discrete(6)
         self.action_to_direction = {
             0: np.array([1, 0, 0]),
             1: np.array([-1, 0, 0]),
@@ -56,7 +56,7 @@ class ActionConfig(object):
         self._action_to_direction = lambda action: self.action_to_direction[action]
 
     def config3(self):
-        self.action_space = spaces.Discrete(7)
+        self.space = spaces.Discrete(7)
         self.action_to_direction = {
             0: np.array([1, 0, 0]),
             1: np.array([-1, 0, 0]),
@@ -69,7 +69,7 @@ class ActionConfig(object):
         self._action_to_direction = lambda action: self.action_to_direction[action]
 
     def config4(self):
-        self.action_space = spaces.Box(
+        self.space = spaces.Box(
             low=np.array([-1, -1, -1]),
             high=np.array([1, 1, 1]),
             dtype=np.intc,  # 但实际上仍是float
@@ -87,7 +87,7 @@ class FindDirection(gym.Env):
         self.obs_range = obervation_config.obs_range
         self.observation_space = obervation_config.observation_space
         action_config = ActionConfig(action_config)
-        self.action_space = action_config.action_space
+        self.action_space = action_config.space
         self._action_to_direction = action_config.action_to_direction
 
         self._recorder = {

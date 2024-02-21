@@ -2,16 +2,48 @@
 from robot_tools.trajer import TrajsRecorder
 from typing import List
 from copy import deepcopy
+from gymnasium import spaces
+import numpy as np
 
 """环境配置基类，用于方便多样化环境设置与调整."""
 
 
-class Observation(object):
+class IOBase(object):
     def __init__(self, config) -> None:
-        self.range = None
-        self.space = None
-        self.id = config
-        eval(f"self.config{config}")()
+        self._id = config
+        self._space = None
+        self._range = None
+
+    def configure(self, config=None):
+        if config is None:
+            config = self.id
+        eval(f"self.config{config}()")
+
+    @property
+    def space(self):
+        return self._space
+
+    @space.setter
+    def space(self, space):
+        self._space = space
+
+    @property
+    def range(self):
+        return self._range
+
+    @range.setter
+    def range(self, range: np.ndarray):
+        self._range = range
+
+    @property
+    def id(self):
+        return self._id
+
+
+class Observation(IOBase):
+    def __init__(self, config) -> None:
+        super().__init__(config)
+        self.configure()
 
     def config1(self):
         raise NotImplementedError
@@ -21,11 +53,10 @@ class Observation(object):
         return observation
 
 
-class Action(object):
+class Action(IOBase):
     def __init__(self, config) -> None:
-        self.space = None
-        self.id = config
-        eval(f"self.config{config}")()
+        super().__init__(config)
+        self.configure()
 
     def config1(self):
         raise NotImplementedError
@@ -150,30 +181,28 @@ class Environment(object):
 
 
 if __name__ == "__main__":
-    from gymnasium import spaces
-    import numpy as np
 
     class ObsCustom(Observation):
         def config1(self):
-            self.obs_range = np.array([[-5, -5, -3], [5, 5, 3]])
-            self.observation_space = spaces.Box(
-                low=self.obs_range[0],
-                high=self.obs_range[1],
+            self.range = np.array([[-5, -5, -3], [5, 5, 3]])
+            self.space = spaces.Box(
+                low=self.range[0],
+                high=self.range[1],
                 dtype=np.integer,
             )
 
     class ActionCustom(Action):
         def config1(self):
-            self.action_space = spaces.Discrete(27)
+            self.space = spaces.Discrete(27)
             values = [0, 1, -1]
-            self.action_to_direction = {}
+            self._action_to_direction = {}
             cnt = 0
             for i in values:
                 for j in values:
                     for k in values:
-                        self.action_to_direction[cnt] = np.array([i, j, k])
+                        self._action_to_direction[cnt] = np.array([i, j, k])
                         cnt += 1  # 所有可能方向的排列组合
-            self.convert = lambda action: self.action_to_direction[action]
+            self.convert = lambda action: self._action_to_direction[action]
 
     class EnvCustom(Environment):
         def __init__(self, obs_cfg, act_cfg):

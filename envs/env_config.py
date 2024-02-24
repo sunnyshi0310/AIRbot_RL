@@ -76,6 +76,9 @@ class Environment(object):
         self._current_traj_id = None
         self._last_observation = None
         self._tr = None
+        # SB3必须要求的属性
+        self.observation_space = self.obs_cfg.space
+        self.action_space = self.act_cfg.space
 
     def record_start(self, path, experiment_id, max_record_steps, end_exit=False):
         """
@@ -142,7 +145,7 @@ class Environment(object):
         """Current observation before action."""
         return self._current_observation
 
-    @property.setter
+    @cur_obs.setter
     def cur_obs(self, observation):
         self._last_observation = deepcopy(self._current_observation)
         self._current_observation = observation
@@ -152,7 +155,7 @@ class Environment(object):
         """Current action that will be applied."""
         return self._current_action
 
-    @property.setter
+    @cur_act.setter
     def cur_act(self, action):
         self._current_action = action
 
@@ -161,7 +164,7 @@ class Environment(object):
         """Current reward after action."""
         return self._current_reward
 
-    @property.setter
+    @cur_rwd.setter
     def cur_rwd(self, reward):
         self._current_reward = reward
 
@@ -170,7 +173,7 @@ class Environment(object):
         """Current trajectory id."""
         return self._current_traj_id
 
-    @property.setter
+    @cur_traj_id.setter
     def cur_traj_id(self, traj_id):
         self._current_traj_id = traj_id
 
